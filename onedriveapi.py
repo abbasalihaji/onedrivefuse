@@ -47,9 +47,7 @@ class OneDriveAPI:
              else:
                 f.write(line)
             
-
     def refreshToken(self):
-        print 'Refreshing Token'
         headers = {'content-type': 'application/x-www-form-urlencoded'}
         data = 'client_id='+self.clientid+'&redirect_uri='+self.redirect+'&client_secret='+self.clientsecret+'&refresh_token='+self.refreshtoken+'&grant_type=refresh_token'
         response = self.post('https://login.live.com/oauth20_token.srf', headers, data)
@@ -59,11 +57,11 @@ class OneDriveAPI:
         self.authorization = {'Authorization': 'Bearer ' + self.accesstoken }
         self.updateConfig('./configfile', r['refresh_token'], r['access_token'])
         
-    def getMeta(self, id, isRoot = False, getChildren = True):
+    def getMeta(self, path, isRoot = False, getChildren = True):
         if isRoot:
             url =  '/drive/items/root'
         else:
-            url = '/drive/items/' + str(id)
+            url = '/drive/root:' + path
         
         if getChildren:
             url = url + '?expand=children'
@@ -89,7 +87,7 @@ class OneDriveAPI:
     def get(self, url, headers, decodeResponse = False, allowredirect = False):
         url = self.mainurl + url
         headers.update(self.authorization)
-        print 'preget'
+        print 'getting = ' + url
         response = requests.get(url, headers=headers, allow_redirects=allowredirect)
         print response.status_code
         print "getsucezz"

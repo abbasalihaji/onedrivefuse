@@ -15,16 +15,18 @@ import time
 import json
 import hashlib
 import urllib3
+import re
 
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn, fuse_get_context
 from onedriveapi import OneDriveAPI
 from odfile import ODFileManager, ODFile
 
 class OneDriveFUSE(LoggingMixIn, Operations):
-    def __init__(self, username, password, logfile=None):
+    def __init__(self, logfile=None):
         self.onedrive_api = OneDriveAPI()
         self.logfile = logfile
         self.files = ODFileManager()
+        self.getFileEntry(0,True)
 
     def getFileEntry(self, id, isRoot = False):
         meta = self.onedrive_api.getMeta(id, isRoot)
@@ -32,6 +34,7 @@ class OneDriveFUSE(LoggingMixIn, Operations):
             return -1   
         else:
             children = []
+            
             for child in meta['children']:
                 children.append(child['name'].encode('ascii', 'ignore'))
             if 'folder' in meta:
@@ -45,12 +48,10 @@ class OneDriveFUSE(LoggingMixIn, Operations):
             if isRoot:
                 path = '/'
             else:
-                tempPath = meta['parentReference']['path'].split()
-                print 'PRINGINT PATH'
-                print tempPath[-1]
-                path = 'process the path'
+                tempPath = re.sub(r'/drive/root:','' ,meta['parentReference']['path'])
+                path = tempPath + '/' + meta['name']
             
-            file = File(meta['id'], meta['name'], path, meta['type'],meta['size'], children)
+            file = ODFile(meta['id'], meta['name'], path, type,meta['size'], children)
             self.files.files.append(file)
             return file
 
@@ -78,7 +79,9 @@ class OneDriveFUSE(LoggingMixIn, Operations):
     def getattr(self, path, fh=None):
         logging.debug("getattr: " + path)
         file = self.files.findFileByPath(path)
+        
         if file == -1:
+            print 'Could not find file'
             file = self.getFileEntry(path)
            
             if file == -1: #for now empty, some other action such as mkdir or create will be called 
@@ -177,21 +180,23 @@ def main():
         'mount_point', metavar='MNTDIR', help='directory to mount filesystem at')
 
     args = parser.parse_args(argv[1:])
-
+    
     mount_point = args.__dict__.pop('mount_point')
-
+    
     # parse options
     options_str = args.__dict__.pop('options')
     options = dict([(kv.split('=', 1)+[True])[:1] for kv in (options_str and options_str.split(',')) or []])
 
     fuse_args = args.__dict__.copy()
+    print args.__dict__
     fuse_args.update(options)
 
     logfile = None
     if fuse_args.get('debug', False) == True:
         # send to stderr same as where fuse lib sends debug messages
         logfile = stderr
-    
+ 
+    print fuse_args
     fuse = FUSE(OneDriveFUSE(logfile=logfile), mount_point, False, **fuse_args)
 
 if __name__ == "__main__":
