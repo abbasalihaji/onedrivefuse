@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import with_statement
-
+from __future__ import division
 from errno import EACCES, ENOENT, EIO, EPERM
 from threading import Lock,Thread
 from stat import S_IFDIR, S_IFREG
@@ -16,10 +16,10 @@ import json
 import hashlib
 import urllib3
 import re
-
+import math
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn, fuse_get_context
 from onedriveapi import OneDriveAPI
-from odfile import ODFileManager, ODFile
+from odfile import ODFileManager, ODFile, Chunk
 
 class OneDriveFUSE(LoggingMixIn, Operations):
     def __init__(self, logfile=None):
@@ -52,8 +52,33 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                 path = tempPath + '/' + meta['name']
             
             file = ODFile(meta['id'], meta['name'], path, type,meta['size'], children)
+            print meta['size']
             self.files.files.append(file)
             return file
+    
+    def createChunks(self, file):
+        filesize = file.size
+        chunksize = self.onedrive_api.chunksize
+        numchunks = int(math.ceil(filesize/chunksize))
+        if len(file.chunks) == numchunks:
+            return #Already has obtained the chunks before
+        else:
+            count = 0
+            offset = 0
+            while count < numchunks:
+                if offset + chunksize > filesize:  #In the Last chunk
+                    offset -= offset - chunksize
+                    csize = file.size - offset
+                    file.chunks.append(Chunk(csize, offset, count))
+                    offset += csize
+                else:
+                    file.chunks.append(Chunk(chunksize, offset, count))
+                    offset += chunksize
+                count += 1
+        
+        if len(file.chunks) != numchunks:
+            print 'Error, Incorrect Number of Chunks. Expected = ' + str(numchunks) + 'Got = ' + str(len(file.chunks))
+            raise FuseOSError(EIO)
 
     def getParts(self, path):
         return 0
@@ -81,7 +106,6 @@ class OneDriveFUSE(LoggingMixIn, Operations):
         file = self.files.findFileByPath(path)
         
         if file == -1:
-            print 'Could not find file'
             file = self.getFileEntry(path)
            
             if file == -1: #for now empty, some other action such as mkdir or create will be called 
@@ -110,6 +134,16 @@ class OneDriveFUSE(LoggingMixIn, Operations):
         print "mkdir: " + path
 
     def open(self, path, flags):
+        
+        file = self.files.findFileByPath(path)
+        if file == -1:
+            file = self.getFileEntry(path)
+            if file == -1:
+                print "ERROR, Couldnot get file"
+                raise FuseOSError(EIO)
+        if file.type == 'file':
+            self.createChunks(file)
+
         return 0
 
     def flush(self, path, fh):
@@ -188,15 +222,13 @@ def main():
     options = dict([(kv.split('=', 1)+[True])[:1] for kv in (options_str and options_str.split(',')) or []])
 
     fuse_args = args.__dict__.copy()
-    print args.__dict__
     fuse_args.update(options)
 
     logfile = None
     if fuse_args.get('debug', False) == True:
         # send to stderr same as where fuse lib sends debug messages
         logfile = stderr
- 
-    print fuse_args
+
     fuse = FUSE(OneDriveFUSE(logfile=logfile), mount_point, False, **fuse_args)
 
 if __name__ == "__main__":

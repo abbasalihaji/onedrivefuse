@@ -1,17 +1,16 @@
 #!/usr/bin/env python
 import sys
 from onedriveapi import OneDriveAPI
-from cachemanager import Chunk, File
 import os
 import time
 
 script = sys.argv
 #id = '9E2B723769ACD40C!5200'
-id = '9E2B723769ACD40C!5175'
-print id
+path = '/2.Broke.Girls.S01E23E24.mkv'
+print path
 onedriveapi = OneDriveAPI()
 
-meta = onedriveapi.getMeta(id)
+meta = onedriveapi.getMeta(path)
 
 print meta 
 
@@ -37,7 +36,7 @@ else:
     while (size/chunksize) >= 1:
         end += int(chunksize)
         #print "Entering download"
-        onedriveapi.download(id, start, end-1)
+        onedriveapi.download(path, start, end-1)
         #print "Ending Downlado"
         start = end
         if (count%5) == 0:

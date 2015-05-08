@@ -53,9 +53,8 @@ class ODFile:
 
 class Chunk:
 
-    def __init__ (self, fingerprint, size, offset, num, isAvailable = False):
+    def __init__ (self, size, offset, num, isAvailable = False):
         self.num = num
-        self.fingerprint = fingerprint
         self.size = size
         self.offset = offset
         self.isAvailable = isAvailable

@@ -29,6 +29,8 @@ class OneDriveAPI:
                 self.code = split[1]
             elif category == 'redirect':
                 self.redirect = split[1]
+            elif category == 'chunksize':
+                self.chunksize = int(split[1])
 
     def updateConfig(self, path, refreshtoken, accesstoken): #change this later for other paramters    
         f = open(path, 'r+')
@@ -67,21 +69,20 @@ class OneDriveAPI:
             url = url + '?expand=children'
         
         headers = {}
-
         response = self.get(url, headers, True)
-
         return response
 
-    def download(self, id, startbyte, endbyte):
-        print "test"
-        url = '/drive/items/' + str(id)  +  '/content'
+    def download(self, path, startbyte, endbyte):
+        url = '/drive/root:' + path  +  ':/content'
         headers = {'Range': 'bytes=' + str(startbyte) + '-' + str(endbyte)}
         #response = self.get(url, headers, False, True)
         headers.update(self.authorization)
         response = requests.get(self.mainurl + url, headers=headers, allow_redirects=True, stream=True)
-        #print response.status_code
-        #print response.headers
-        print "length = " + str(len(response.content))
+        
+        if len(response.content) != endbyte - startbyte + 1:
+            print 'ERROR, Incorrect length of content. Content Length = ' + str(len(response.content)) + '. Expected lentgh = ' + str(endbyte - startbyte + 1)
+            raise FuseOSError(EIO)
+
         return response.content
     
     def get(self, url, headers, decodeResponse = False, allowredirect = False):
