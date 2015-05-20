@@ -6,7 +6,8 @@ import time
 
 script = sys.argv
 #id = '9E2B723769ACD40C!5200'
-path = '/2.Broke.Girls.S01E23E24.mkv'
+#path = '/2.Broke.Girls.S01E23E24.mkv'
+path = "/Report.docx"
 print path
 onedriveapi = OneDriveAPI()
 

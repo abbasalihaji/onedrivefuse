@@ -34,7 +34,7 @@ class ODFile:
         if numChunks <= 0:
             return -1
         else:
-            if guess < numChunks:
+            if guess < numChunks and guess >= 0:
                 chunk = self.chunks[guess]
                 if int(chunk.offset) <= int(offset) and (int(chunk.offset) + int(chunk.size)) > int(offset):
                     return guess

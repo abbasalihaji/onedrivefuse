@@ -26,10 +26,13 @@ class OneDriveFUSE(LoggingMixIn, Operations):
         self.onedrive_api = OneDriveAPI()
         self.logfile = logfile
         self.files = ODFileManager()
-        self.getFileEntry(0,True)
+        self.getFileEntry('/',True)
+        self.crtchunk = -10
+        self.chunk = {'chunk' :Chunk(0,0,-1), 'data': ''}
 
-    def getFileEntry(self, id, isRoot = False):
-        meta = self.onedrive_api.getMeta(id, isRoot)
+    def getFileEntry(self, path, isRoot = False):
+        print path
+        meta = self.onedrive_api.getMeta(path, isRoot)
         if not meta:    #couldnt find entry
             return -1   
         else:
@@ -66,8 +69,7 @@ class OneDriveFUSE(LoggingMixIn, Operations):
             count = 0
             offset = 0
             while count < numchunks:
-                if offset + chunksize > filesize:  #In the Last chunk
-                    offset -= offset - chunksize
+                if offset + chunksize-1 > filesize:  #In the Last chunk
                     csize = file.size - offset
                     file.chunks.append(Chunk(csize, offset, count))
                     offset += csize
@@ -75,21 +77,119 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                     file.chunks.append(Chunk(chunksize, offset, count))
                     offset += chunksize
                 count += 1
-        
+        self.printChunks(file)
         if len(file.chunks) != numchunks:
             print 'Error, Incorrect Number of Chunks. Expected = ' + str(numchunks) + 'Got = ' + str(len(file.chunks))
             raise FuseOSError(EIO)
+
+    def printChunks(self, file):
+        for c in file.chunks:
+            print'Num = ' + str(c.num) + '. Offset = ' + str(c.offset) + '. Size = ' + str(c.size)
+
+    def preRead(self, file, offset):
+        crtchunknum = file.getChunkNumber(self.crtchunk, offset)
+
+        if crtchunknum == -1:
+            print "Error, Could not find chunk"
+            raise FuseOSError(EIO)
+        else:
+            if crtchunknum != self.crtchunk:
+                if crtchunknum < len(file.chunks):
+                    chunk = file.chunks[crtchunknum]
+                    startbyte = chunk.offset
+                    endbyte = chunk.offset+chunk.size-1
+                    self.chunk['chunk'] = chunk
+                    self.chunk['data'] = self.onedrive_api.download(file.path, startbyte, endbyte)
+                    self.crtchunk = crtchunknum
+                    if len(self.chunk['data']) != chunk.size:
+                        print "Error, Data size is incorrect"
+                        raise FuseOSError(EIO)
+                else:
+                    print "Error, Accessing out of bounds chunk"
+                    raise FuseOSError(EIO)
+                #if crtchunknum == self.crtchunk+1:
+                #    self.crtchunk += 1
+                #    self.chunk = file.chunks[self.crtchunk]
+                
+    def readData(self, file, offset, size, chunknum):
+        print "Offset = " + str(offset) + ' .Size = ' + str(size)
+        chunk = self.chunk['chunk']
+        if chunknum != chunk.num:
+            print "Error, Reading wrong chunk"
+            raise FuseOSError(EIO)
+
+        data = ""
+        counter = 1
+        while counter > 0 :
+            counter = 0
+            if self.chunk['chunk'].num != self.crtchunk:
+                print "Error, Reading wrong chunk"
+                raise FuseOSError(EIO)
+            if chunknum == len(file.chunks)-1:  #last chunk
+                temp = file.size - offset
+                if temp == 0:
+                    return ""
+                elif temp <= size:
+                    size = temp
+            print 'Chunk num = ' + str(chunk.num)   
+            if int(chunk.offset) <= int(offset):
+                if int(offset)+int(size) > int(chunk.offset)+int(chunk.size):
+                    print 'Case 1'
+                    data += self.chunk['data'][int(offset)-int(chunk.offset):]
+                    if self.crtchunk+1 < len(file.chunks):
+                        self.crtchunk += 1
+                        chunk = file.chunks[self.crtchunk]
+                        startbyte = chunk.offset
+                        endbyte = chunk.offset+chunk.size-1
+                        self.chunk['chunk'] = chunk
+                        self.chunk['data'] = self.onedrive_api.download(file.path, startbyte, endbyte)
+                        if len(self.chunk['data']) != chunk.size:
+                            print "Error, Data size is incorrect"
+                            raise FuseOSError(EIO)
+                        counter = 1
+                else:
+                    print 'Case 2'
+                    data += self.chunk['data'][int(offset)-int(chunk.offset):int(offset)-int(chunk.offset)+int(size)]
+            else:
+                if int(offset)+int(size) > int(chunk.offset)+int(chunk.size):
+                    print 'Case 3'
+                    data += self.chunk['data']
+                    if self.crtchunk+1 < len(file.chunks):
+                        self.crtchunk += 1
+                        chunk = file.chunks[self.crtchunk]
+                        startbyte = chunk.offset
+                        endbyte = chunk.offset+chunk.size-1
+                        self.chunk['chunk'] = chunk
+                        self.chunk['data'] = self.onedrive_api.download(file.path, startbyte, endbyte)
+                        if len(self.chunk['data']) != chunk.size:
+                            print "Error, Data size is incorrect"
+                            raise FuseOSError(EIO)
+                        counter = 1
+                else:
+                    print 'Case 4'
+                    data += self.chunk['data'][:int(offset)+int(size)-int(chunk.offset)]
+
+#            chunknum +=1 
+#            print str(chunknum)
+#            if chunknum < len(file.chunks):
+#                chunk = file.chunks[chunknum]
+#            else:
+#                if len(data) != int(size):
+#                    print "Error, Last Chunk Incorrect data size read, Expected = " + str(size) + '. Got = ' + str(len(data))
+#                   raise FuseOSError(EIO)
+#                else:
+#                    return data
+        if len(data) != int(size):
+             print "Error, Incorrect data size read, Expected = " + str(size) + '. Got = ' + str(len(data))
+             raise FuseOSError(EIO)
+        else:
+            return data
+
 
     def getParts(self, path):
         return 0
     
     def getBufferParts(self):
-        return 0
-
-    def preRead(self, file, offset):
-        return 0
-    
-    def readData(self, file, offset, size, chunknum):
         return 0
 
     def chmod(self, path, mode):
@@ -156,7 +256,15 @@ class OneDriveFUSE(LoggingMixIn, Operations):
          print "release: " + path
 
     def read(self, path, size, offset, fh):
-        return 0
+        file = self.files.findFileByPath(path)
+        if file == -1:
+            file = self.getFileEntry(path)
+            if file == -1:
+                print "ERROR, Couldnot get file"
+                raise FuseOSError(EIO)
+        self.preRead(file, offset)
+        data = self.readData(file,offset, size, self.crtchunk)
+        return data
 	
     def readdir(self, path, fh):
         listing = ['.', '..']
