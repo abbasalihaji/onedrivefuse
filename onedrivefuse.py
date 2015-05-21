@@ -2,6 +2,7 @@
 
 from __future__ import with_statement
 from __future__ import division
+import concurrent.futures
 from errno import EACCES, ENOENT, EIO, EPERM
 from threading import Lock,Thread
 from stat import S_IFDIR, S_IFREG
@@ -23,6 +24,8 @@ from odfile import ODFileManager, ODFile, Chunk, CQueue
 
 class OneDriveFUSE(LoggingMixIn, Operations):
     def __init__(self, logfile=None):
+        logging.basicConfig(filename='/home/onedrivefuse/log.log', filemode='w', level=logging.WARNING)
+        logging.warning("Testing")
         self.onedrive_api = OneDriveAPI()
         self.logfile = logfile
         self.files = ODFileManager()
@@ -81,7 +84,8 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                 count += 1
         #self.printChunks(file)
         if len(file.chunks) != numchunks:
-            print 'Error, Incorrect Number of Chunks. Expected = ' + str(numchunks) + 'Got = ' + str(len(file.chunks))
+            e = 'Error, Incorrect Number of Chunks. Expected = ' + str(numchunks) + 'Got = ' + str(len(file.chunks))
+            logging.warning(e)
             raise FuseOSError(EIO)
 
     def printChunks(self, file):
@@ -97,56 +101,63 @@ class OneDriveFUSE(LoggingMixIn, Operations):
             data = self.onedrive_api.download(file.path, startbyte, endbyte)
             self.chunk['data'] = data
             if len(self.chunk['data']) != chunk.size:
-                print "Error, Data size is incorrect"
+                e = "Error, Data size is incorrect"
+                logging.warning(e)
                 raise FuseOSError(EIO)
             return {'chunk': chunk, 'data': data}
         else:
-            print "Error, Accessing out of bounds chunk"
+            e = "Error, Accessing out of bounds chunk"
+            logging.warning(e)
             raise FuseOSError(EIO)
     
     def getSequentitalChunks(self, file, startChunk):
         self.buffer.clear()
-        print "Post Clear"
         counter = 0
         while counter < self.buffsize and counter+startChunk < len(file.chunks):
-            print "putting chunk no = " + str(counter+startChunk)
             if counter == 0:
                 self.buffer.currentChunk = self.getChunk(file, counter+startChunk)
             else:
                 self.buffer.put(self.getChunk(file, counter+startChunk))
             counter += 1
+        
+        #count2 = 0
+        #while count2 < counter:
+        #    if count2 == 0:
+        #        self.buffer.currentChunk = self.getChunk(file, counter+startChunk)
+        #    else:
+        #        self.buffer.put(self.getChunk(file, counter+startChunk))
+        #    count2 += 1
+ 
     def preRead(self, file, offset):
         crtchunknum = file.getChunkNumber(self.crtchunk, offset)
 
         if crtchunknum == -1:
-            print "Error, Could not find chunk"
+            e = "Error, Could not find chunk"
+            logging.warning(e)
             raise FuseOSError(EIO)
         else:
             if crtchunknum == self.crtchunk+1:
-                print "Pre Read, Case 1"
                 if crtchunknum < len(file.chunks):
                     self.crtchunk += 1
                     self.buffer.get()
-                    print "Current Chunk num = "
                     if self.crtchunk + self.buffsize -1 < len(file.chunks):
-                        print "putting chunk no = " + str(self.crtchunk + self.buffsize -1)
                         self.buffer.put(self.getChunk(file, self.crtchunk + self.buffsize -1))
                 else:
-                    print "Error, Accessing out of bounds chunk"
+                    e = "Error, Accessing out of bounds chunk"
+                    logging.warning(e)
                     raise FuseOSError(EIO)
 
             elif crtchunknum != self.crtchunk:
-                    print "Pre Read Case 2"
                     self.getSequentitalChunks(file, crtchunknum)
                     self.crtchunk = crtchunknum
             
                 
 
     def readData(self, file, offset, size, chunknum):
-        print "Offset = " + str(offset) + ' .Size = ' + str(size)
         chunk = self.buffer.currentChunk['chunk']
         if chunknum != chunk.num:
-            print "Error, Reading wrong chunk"
+            e = "Error, Reading wrong chunk"
+            logging.warning(e)
             raise FuseOSError(EIO)
 
         data = ""
@@ -155,7 +166,8 @@ class OneDriveFUSE(LoggingMixIn, Operations):
             chunk = self.buffer.currentChunk['chunk']
             counter = 0
             if self.buffer.currentChunk['chunk'].num != self.crtchunk:
-                print "Error, Reading wrong chunk"
+                e = "Error, Reading wrong chunk"
+                logging.warning(e)
                 raise FuseOSError(EIO)
             if chunknum == len(file.chunks)-1:  #last chunk
                 temp = file.size - offset
@@ -165,7 +177,6 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                     size = temp
             if int(chunk.offset) <= int(offset):
                 if int(offset)+int(size) > int(chunk.offset)+int(chunk.size):
-                    print 'Case 1'
                     data += self.buffer.currentChunk['data'][int(offset)-int(chunk.offset):]
                     if self.crtchunk+1 < len(file.chunks):
                         self.crtchunk += 1
@@ -174,11 +185,9 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                             self.buffer.put(self.getChunk(file, self.crtchunk + self.buffsize -1))
                         counter = 1
                 else:
-                    print 'Case 2'
                     data += self.buffer.currentChunk['data'][int(offset)-int(chunk.offset):int(offset)-int(chunk.offset)+int(size)]
             else:
                 if int(offset)+int(size) > int(chunk.offset)+int(chunk.size):
-                    print 'Case 3'
                     data += self.buffer.currentChunk['data']
                     if self.crtchunk+1 < len(file.chunks):
                         self.crtchunk += 1
@@ -192,7 +201,8 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                     data += self.buffer.currentChunk['data'][:int(offset)+int(size)-int(chunk.offset)]
 
         if len(data) != int(size):
-             print "Error, Incorrect data size read, Expected = " + str(size) + '. Got = ' + str(len(data))
+             e = "Error, Incorrect data size read, Expected = " + str(size) + '. Got = ' + str(len(data))
+             logging.warning(e)
              raise FuseOSError(EIO)
         else:
             return data

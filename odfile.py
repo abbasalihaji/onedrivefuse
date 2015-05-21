@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import Queue
+import logging
 class ODFileManager:
 
     def __init__ (self):
@@ -67,7 +68,7 @@ class CQueue:
 	    self.currentChunk = ""
 	
     def get(self):
-        print "Get"
+        logging.warning("Getting from queue")
         if self.q.empty():
 	        print "Getting from Empty"
         else:
@@ -77,7 +78,7 @@ class CQueue:
 	    return self.q.empty()
 
     def put(self, data):
-        print "Put"
+        logging.warning("Putting on queue")
         self.q.put(data)
 
     def clear(self):
