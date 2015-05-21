@@ -67,21 +67,23 @@ class CQueue:
 	    self.currentChunk = ""
 	
     def get(self):
-	    if self.q.empty():
-	        temp = ""
-	    else:
-	        self.currentChunk = self.q.get()
+        print "Get"
+        if self.q.empty():
+	        print "Getting from Empty"
+        else:
+            self.currentChunk = self.q.get()
 
     def empty(self):
 	    return self.q.empty()
 
     def put(self, data):
-	    self.q.put(data)
+        print "Put"
+        self.q.put(data)
 
     def clear(self):
         while not self.q.empty():
             try:
-                q.get(False)
-            except Empty:
+                self.q.get(False)
+            except Queue.Empty:
                 continue
-	        q.task_done()
+	        self.q.task_done()
