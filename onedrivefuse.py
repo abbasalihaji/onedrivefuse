@@ -32,7 +32,7 @@ class OneDriveFUSE(LoggingMixIn, Operations):
         self.getFileEntry('/',True)
         self.crtchunk = -10
         self.chunk = {'chunk' :Chunk(0,0,-1), 'data': ''}
-        self.buffsize = 3
+        self.buffsize = 10
         self.buffer = CQueue(self.buffsize)
 
     def getFileEntry(self, path, isRoot = False):
@@ -113,21 +113,73 @@ class OneDriveFUSE(LoggingMixIn, Operations):
     def getSequentitalChunks(self, file, startChunk):
         self.buffer.clear()
         counter = 0
-        while counter < self.buffsize and counter+startChunk < len(file.chunks):
-            if counter == 0:
-                self.buffer.currentChunk = self.getChunk(file, counter+startChunk)
-            else:
-                self.buffer.put(self.getChunk(file, counter+startChunk))
-            counter += 1
+        futures = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.buffsize) as executor:
+            while counter < self.buffsize and counter+startChunk < len(file.chunks):
+
+                x = executor.submit( self.getChunk, file, counter+startChunk)
+                futures.append(x)
+                counter += 1
+            #if counter == 0:
+            #    self.buffer.currentChunk = self.getChunk(file, counter+startChunk)
+            #else:
+            #    self.buffer.put(self.getChunk(file, counter+startChunk))
+            #counter += 1
         
-        #count2 = 0
-        #while count2 < counter:
-        #    if count2 == 0:
-        #        self.buffer.currentChunk = self.getChunk(file, counter+startChunk)
-        #    else:
-        #        self.buffer.put(self.getChunk(file, counter+startChunk))
-        #    count2 += 1
- 
+        count2 = 0
+        for r in futures:
+            print str(count2)
+            if count2 == 0:
+                self.buffer.currentChunk = r.result()
+            else:
+                self.buffer.put(r.result())
+            count2 += 1
+    def makeAvailableForRead(self):
+        fileCache = self.cacheManager.findFileByPath(path)
+        f = open(fileCache.localPath, 'a+b')        #Understand pyhton write read params to fix this
+        counter = 0
+        while counter < len(fileCache.chunks):
+            chunk = fileCache.chunks[counter]
+            data = ""
+            if (int(chunk.offset) <= int(offset)) and ((int(chunk.offset) + int(chunk.size)) > int(offset)):    #found chunk between which startoffset lies
+                temp = ""
+                while int(chunk.offset) < int(offset) + int(size):
+                    if chunk.isAvailable:
+                        f.seek(chunk.localoffset)
+                        temp = f.read(int(chunk.size))
+                    else:
+                        temp = self.getPart(chunk.fingerprint, chunk.size)
+                        chunk.isAvailable = True
+                        f.seek(0,2)
+                        chunk.localoffset = f.tell()
+                        logging.debug("writting to file. Offset equal = " + str(chunk.localoffset))
+                        f.write(temp)
+                        f.seek(0,2)
+                    if int(chunk.offset) >= int(offset) and int(chunk.offset)+int(chunk.size) < int(offset)+int(size):
+                        data += temp
+                    elif int(chunk.offset) <= int(offset) and int(chunk.offset)+int(chunk.size) > int(offset)+int(size):
+                        data += temp[(int(offset)-int(chunk.offset)):(int(offset)-int(chunk.offset)+int(size))]
+                    elif int(chunk.offset) <= int(offset) and int(chunk.offset)+int(chunk.size) < int(offset)+int(size):
+                        data += temp[int(offset)-int(chunk.offset):]
+                    else:
+                        data += temp[:int(offset)+int(size)-int(chunk.offset)]
+
+                    if counter+1 < len(fileCache.chunks):
+                        chunk = fileCache.chunks[counter+1]
+                    else:
+                        return data
+                    counter += 1
+
+                if len(data) != int(size):
+                    return ""
+                else:
+                    return data
+            counter += 1
+        f.close()
+        return data
+
+
+    
     def preRead(self, file, offset):
         crtchunknum = file.getChunkNumber(self.crtchunk, offset)
 
@@ -278,6 +330,8 @@ class OneDriveFUSE(LoggingMixIn, Operations):
          print "release: " + path
 
     def read(self, path, size, offset, fh):
+        msg = "Reading, Path = " + path + ". Offset = " + str(offset) + ". Size = " + str(size)
+        logging.warning(msg)
         file = self.files.findFileByPath(path)
         if file == -1:
             file = self.getFileEntry(path)
