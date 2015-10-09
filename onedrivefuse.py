@@ -20,7 +20,8 @@ import re
 import math
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn, fuse_get_context
 from onedriveapi import OneDriveAPI
-from odfile import ODFileManager, ODFile, Chunk, CQueue
+from onedrivefilemanager import FileManager, File, Chunk
+from Queue import Queue
 
 class OneDriveFUSE(LoggingMixIn, Operations):
     def __init__(self, logfile=None):
@@ -28,13 +29,34 @@ class OneDriveFUSE(LoggingMixIn, Operations):
         logging.warning("Testing")
         self.onedrive_api = OneDriveAPI()
         self.logfile = logfile
-        self.files = ODFileManager()
+        self.fileManager = FileManager()
         self.getFileEntry('/',True)
-        self.crtchunk = -10
-        self.chunk = {'chunk' :Chunk(0,0,-1), 'data': ''}
-        self.buffsize = 10
-        self.buffer = CQueue(self.buffsize)
+        self.bufferSize = 10
+        self.buffer = Queue(self.buffsize)
+        #self.crtchunk = -10
+        #self.chunk = {'chunk' :Chunk(0,0,-1), 'data': ''}
+        #self.buffsize = 10
+        #self.buffer = CQueue(self.buffsize)
 
+    def doWork(self):
+ 
+            data = self.buffer.get(block=True)
+            chunkNum = data['chunkNum']
+            chunk = data['chunk']
+            file = data['file']
+            temp = self.getChunk(file, chunkNum)
+            logging.warning("Downloaded chunk size = " + str(len(temp)))
+            #Put lock here
+            f = open(file.tempFilePath, 'a+b')
+            f.seek(0, 2)
+            chunk.localOffSet = f.tell()
+            chunk.localOffSet = f.tell()
+            logging.warning("localOffset = " + str(chunk.localOffSet))
+            f.write(temp)
+            f.seek(0,2)
+            logging.warning("EndOffSet = " + str(f.tell()))
+            #End lock here
+            
     def getFileEntry(self, path, isRoot = False):
         print path
         meta = self.onedrive_api.getMeta(path, isRoot)
@@ -42,7 +64,7 @@ class OneDriveFUSE(LoggingMixIn, Operations):
             return -1   
         else:
             children = []
-            
+            print meta['children']
             for child in meta['children']:
                 children.append(child['name'].encode('ascii', 'ignore'))
             if 'folder' in meta:
@@ -59,11 +81,12 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                 tempPath = re.sub(r'/drive/root:','' ,meta['parentReference']['path'])
                 path = tempPath + '/' + meta['name']
             
-            file = ODFile(meta['id'], meta['name'], path, type,meta['size'], children)
+            #file = ODFile(meta['id'], meta['name'], path, type,meta['size'], children)
+            file = File(path, type, meta['size'], children)
             print meta['size']
-            self.files.files.append(file)
+            self.fileManager.addFile(file)
             return file
-    
+      
     def createChunks(self, file):
         filesize = file.size
         chunksize = self.onedrive_api.chunksize
@@ -95,16 +118,16 @@ class OneDriveFUSE(LoggingMixIn, Operations):
     def getChunk(self, file, chunknum):
         if chunknum < len(file.chunks):
             chunk = file.chunks[chunknum]
-            startbyte = chunk.offset
-            endbyte = chunk.offset+chunk.size-1
-            self.chunk['chunk'] = chunk
-            data = self.onedrive_api.download(file.path, startbyte, endbyte)
-            self.chunk['data'] = data
-            if len(self.chunk['data']) != chunk.size:
+            startbyte = chunk.cloudOffSet
+            endbyte = chunk.cloudOffSet+chunk.size-1
+            #self.chunk['chunk'] = chunk
+            data = self.onedrive_api.download(file.cloudPath, startbyte, endbyte)
+            #self.chunk['data'] = data
+            if len(data) != chunk.size:
                 e = "Error, Data size is incorrect"
                 logging.warning(e)
                 raise FuseOSError(EIO)
-            return {'chunk': chunk, 'data': data}
+            return data
         else:
             e = "Error, Accessing out of bounds chunk"
             logging.warning(e)
@@ -134,43 +157,71 @@ class OneDriveFUSE(LoggingMixIn, Operations):
             else:
                 self.buffer.put(r.result())
             count2 += 1
-    def makeAvailableForRead(self):
-        fileCache = self.cacheManager.findFileByPath(path)
-        f = open(fileCache.localPath, 'a+b')        #Understand pyhton write read params to fix this
+    
+    def makeAvailableForRead(self, file, offset, size):
+        #file = self.fileManager.findFileByPath(path)
+        #Hack to create temp file
+        #REMOVE
+        if file.tempFilePath == "":
+            self.createChunks(file)
+            f = tempfile.NamedTemporaryFile(delete=False)
+            file.tempFilePath = f.name
+        f = open(file.tempFilePath, 'a+b')        #Understand pyhton write read params to fix this
         counter = 0
-        while counter < len(fileCache.chunks):
-            chunk = fileCache.chunks[counter]
+        while counter < len(file.chunks):
+            chunk = file.chunks[counter]
             data = ""
-            if (int(chunk.offset) <= int(offset)) and ((int(chunk.offset) + int(chunk.size)) > int(offset)):    #found chunk between which startoffset lies
+            cloudOffSet = int(chunk.cloudOffSet)
+            chunkSize = int(chunk.size)
+            offset = int(offset)
+            size = int(size)
+            logging.warning(len(file.chunks))
+            logging.warning("In Chunk " + str(counter) + " with offset : " + str(cloudOffSet) + ". LocalPath = " + file.tempFilePath)
+            if (cloudOffSet <= offset) and ((cloudOffSet + chunkSize) > offset):    #found chunk between which startoffset lies
                 temp = ""
-                while int(chunk.offset) < int(offset) + int(size):
+                while cloudOffSet < (offset + size):
                     if chunk.isAvailable:
-                        f.seek(chunk.localoffset)
-                        temp = f.read(int(chunk.size))
+                        #logging.warning("CHUNK AVAILABLE")
+                        #f.seek(0,2)
+                        #logging("AVAILABLE OFFSET " + str(f.tell()))
+                        f.seek(chunk.localOffSet)
+                        temp = f.read(chunkSize)
+                        logging.warning("Chunk is available. Size = " + str(len(temp)))
                     else:
-                        temp = self.getPart(chunk.fingerprint, chunk.size)
+                        #IMP DOWNLOAD PART CHANGE
+                        temp = self.getChunk(file, chunk.num)
+                        logging.warning("Downloaded chunk size = " + str(len(temp)))
                         chunk.isAvailable = True
                         f.seek(0,2)
-                        chunk.localoffset = f.tell()
-                        logging.debug("writting to file. Offset equal = " + str(chunk.localoffset))
+                        chunk.localOffSet = f.tell()
+                        logging.warning("localOffset = " + str(chunk.localOffSet))
+                        #logging.debug("writting to file. Offset equal = " + str(chunk.localoffset))
                         f.write(temp)
                         f.seek(0,2)
-                    if int(chunk.offset) >= int(offset) and int(chunk.offset)+int(chunk.size) < int(offset)+int(size):
+                        logging.warning("EndOffSet = " + str(f.tell()))
+                    if cloudOffSet >= offset and (cloudOffSet+chunkSize) < (offset+size):
+                        logging.warning("Case 1")
                         data += temp
-                    elif int(chunk.offset) <= int(offset) and int(chunk.offset)+int(chunk.size) > int(offset)+int(size):
-                        data += temp[(int(offset)-int(chunk.offset)):(int(offset)-int(chunk.offset)+int(size))]
-                    elif int(chunk.offset) <= int(offset) and int(chunk.offset)+int(chunk.size) < int(offset)+int(size):
-                        data += temp[int(offset)-int(chunk.offset):]
+                    elif cloudOffSet <= offset and (cloudOffSet+chunkSize) > (offset+size):
+                       logging.warning("Case 2")
+                       data += temp[offset-cloudOffSet:(offset-cloudOffSet)+size]
+                    elif cloudOffSet <= offset and (cloudOffSet+chunkSize) < (offset+size):
+                        logging.warning("case 3")
+                        data += temp[offset-cloudOffSet:]
                     else:
-                        data += temp[:int(offset)+int(size)-int(chunk.offset)]
+                        logging.warning("Case 4")
+                        data += temp[:offset+size-cloudOffSet]
 
-                    if counter+1 < len(fileCache.chunks):
-                        chunk = fileCache.chunks[counter+1]
+                    if counter+1 < len(file.chunks):
+                        chunk = file.chunks[counter+1]
+                        cloudOffSet = int(chunk.cloudOffSet)
+                        chunkSize = int(chunk.size)
                     else:
                         return data
                     counter += 1
 
                 if len(data) != int(size):
+                    logging.warning("Expected size: " + str(size) + ". Returned data size " + str(len(data)))
                     return ""
                 else:
                     return data
@@ -276,48 +327,51 @@ class OneDriveFUSE(LoggingMixIn, Operations):
         return dict(f_bsize=512, f_frsize=512)
 
     def getattr(self, path, fh=None):
-        logging.debug("getattr: " + path)
-        file = self.files.findFileByPath(path)
+        try:
+            logging.debug("getattr: " + path)
+            file = self.fileManager.findFileByPath(path)
         
-        if file == -1:
-            file = self.getFileEntry(path)
+            if file == -1:
+                file = self.getFileEntry(path)
            
             if file == -1: #for now empty, some other action such as mkdir or create will be called 
                 st = dict(st_mode=(S_IFREG | 0644))
                 return st
-        
-        if path == '/':
-            st = dict(st_mode=(S_IFDIR | 0755), st_nlink=2)
-            st['st_ctime'] = st['st_atime'] = st['st_mtime'] = time.time()
-        else:
-            if file.type  == 'file':
-                logging.debug('file size = ' + str(int(file.size)))
-                st = dict(st_mode=(S_IFREG | 0644), st_size=int(file.size))
-            else:
+
+            if path == '/':
                 st = dict(st_mode=(S_IFDIR | 0755), st_nlink=2)
                 st['st_ctime'] = st['st_atime'] = st['st_mtime'] = time.time()
-                #later change these and add them as attributes of file class
-                #st['st_ctime'] = st['st_atime'] = objects[name]['ctime']
-                #st['st_mtime'] = objects[name]['mtime']
+            else:
+                if file.type  == 'file':
+                    logging.debug('file size = ' + str(int(file.size)))
+                    st = dict(st_mode=(S_IFREG | 0644), st_size=int(file.size))
+                else:
+                    st = dict(st_mode=(S_IFDIR | 0755), st_nlink=2)
+                    st['st_ctime'] = st['st_atime'] = st['st_mtime'] = time.time()
+                    #later change these and add them as attributes of file class
+                    #st['st_ctime'] = st['st_atime'] = objects[name]['ctime']
+                    #st['st_mtime'] = objects[name]['mtime']
 
-        st['st_uid'] = os.getuid()
-        st['st_gid'] = os.getgid()
-        return st
+            st['st_uid'] = os.getuid()
+            st['st_gid'] = os.getgid()
+            return st
+        except Exception as e :
+            logging.warning("Exception in getattr : " + str(e))
 
     def mkdir(self, path, mode):
         print "mkdir: " + path
 
     def open(self, path, flags):
-        
-        file = self.files.findFileByPath(path)
+        file = self.fileManager.findFileByPath(path)
         if file == -1:
             file = self.getFileEntry(path)
             if file == -1:
                 print "ERROR, Couldnot get file"
                 raise FuseOSError(EIO)
-        if file.type == 'file':
-            self.createChunks(file)
-
+        #if file.type == 'file':
+        #    self.createChunks(file)
+        #    f = tempfile.NamedTemporaryFile(delete=False)
+        #    file.tempFilePath = f.name
         return 0
 
     def flush(self, path, fh):
@@ -330,27 +384,41 @@ class OneDriveFUSE(LoggingMixIn, Operations):
          print "release: " + path
 
     def read(self, path, size, offset, fh):
-        msg = "Reading, Path = " + path + ". Offset = " + str(offset) + ". Size = " + str(size)
-        logging.warning(msg)
-        file = self.files.findFileByPath(path)
-        if file == -1:
-            file = self.getFileEntry(path)
-            if file == -1:
-                print "ERROR, Couldnot get file"
-                raise FuseOSError(EIO)
-        self.preRead(file, offset)
-        data = self.readData(file,offset, size, self.crtchunk)
-        return data
+        try:
+            #msg = "Reading, Path = " + path + ". Offset = " + str(offset) + ". Size = " + str(size)
+            #logging.warning(msg)
+            file = self.fileManager.findFileByPath(path)
+            #if file == -1:
+            #    file = self.getFileEntry(path)
+            #    if file == -1:
+            #        print "ERROR, Couldnot get file"
+            #        raise FuseOSError(EIO)
+            #self.preRead(file, offset)
+            logging.warning("Start Read")
+            logging.warning(path)
+            logging.warning(size)
+            logging.warning(offset)
+            data = self.makeAvailableForRead(file, offset, size)
+            #data = self.file,offset, sie)
+            if len(data) != size:
+                logging.warning("ERRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRROR")
+            logging.warning("End READ")
+            return data
+        except Exception as e :
+            logging.warning("Exception in read: " + str(e))
 	
     def readdir(self, path, fh):
-        listing = ['.', '..']
-        file = self.files.findFileByPath(path)
-        if file == -1:
-            raise FuseOSError(EIO)
-        else:
-            for child in file.children:
-                listing.append(child)
-        return listing
+        try:
+            listing = ['.', '..']
+            file = self.fileManager.findFileByPath(path)
+            if file == -1:
+                raise FuseOSError(EIO)
+            else:
+                for child in file.children:
+                    listing.append(child)
+            return listing
+        except Exception as e :
+            logging.warning("Exception in readdir : " + str(e))
 
     def rename(self, old, new):
         print "renaming: " + old + " to " + new

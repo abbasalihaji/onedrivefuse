@@ -4,12 +4,13 @@ import Queue
 import logging
 
 class File:
-    def __init__(self, cloudPath, type, size):
+    def __init__(self, cloudPath, type, size, children):
         self.cloudPath = cloudPath
         self.type = type
         self.size = size
         self.chunks = []
-        self.tempFile = "" #temporary file path
+        self.children = children
+        self.tempFilePath = "" #temporary file path
 
     def getChunkNumber(self, guess, offset):
         numChunks = len(self.chunks)
