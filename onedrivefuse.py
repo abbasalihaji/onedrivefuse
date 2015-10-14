@@ -167,107 +167,119 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                 self.buffer.put(r.result())
             count2 += 1
  
-    def writeToFile(self, sess, resp, data):
+    def writeToFile(self, sess, resp, data, a):
         logging.warning("IN WRITE TO FILE")
         try:
             self.writeLock.acquire()
-            chunk = data['chunk']
             file = data['file']
-            chunkNum = chunk.num
+            chunkNum = data['chunkNum']
             temp = resp.content
-            if len(temp) != chunk.size:
+            logging.warning("CHUNK NUM:" + str(chunkNum))
+            if len(temp) != file.chunks[chunkNum].size:
                 logging.warning("Wrong size of data recieved")
             else:    
                 logging.warning("Downloaded chunk size = " + str(len(temp)))
                 #Put lock here
                 f = open(file.tempFilePath, 'a+b')
                 f.seek(0, 2)
-                chunk.localOffSet = f.tell()
-                logging.warning("localOffset = " + str(chunk.localOffSet))
+                file.chunks[chunkNum].localOffSet = f.tell()
+                logging.warning("localOffset = " + str(file.chunks[chunkNum].localOffSet))
                 f.write(temp)
                 f.seek(0,2)
                 logging.warning("EndOffSet = " + str(f.tell()))
-                chunk.isAvailable = True
+                file.chunks[chunkNum].isAvailable = True
             logging.warning("RELEASING LOCK")
             self.writeLock.release()
-            logging.warning("EXITING WRITE TO FILE")
             logging.warning(file.chunks[chunkNum].isAvailable)
+            logging.warning("EXITING WRITE TO FILE")
         except Exception as e :
             self.writeLock.release()
             logging.warning(e)
             return str(e)
 
     def getData(self, file, chunkNum, readOffset, readSize):
-        data = ""
-        temp = ""
-        chunk = file.chunks[chunkNum]
-        cloudOffset = int(chunk.cloudOffSet)
-        chunkSize = int(chunk.size)
-        offset = int(readOffset)
-        size = int(readSize)
-        f = open(file.tempFilePath, 'a+b')        #Understand pyhton write read params to fix this
-        while cloudOffset < (offset + size):
-            if chunk.isAvailable:
-                #logging.warning("CHUNK AVAILABLE")
-                #f.seek(0,2)
-                #logging("AVAILABLE OFFSET " + str(f.tell()))
-                f.seek(chunk.localOffSet)
-                temp = f.read(chunkSize)
-                logging.warning("Chunk is available. Size = " + str(len(temp)))
-            else:
-                #IMP DOWNLOAD PART CHANGE
-                callBackData = {'chunk': chunk, 'file': file}
-                a = self.getChunk1(file, chunk.num, background_callback=lambda sess, resp: self.writeToFile(sess, resp, callBackData))
-                logging.warning("Downloaded chunk size = " + str(len(temp)))
-                counter = 0
-                while counter < 15:
-                    time.sleep(2)
-                    logging.warning(file.chunks[chunkNum].isAvailable)
-                    if chunk.isAvailable:
-                        f.seek(chunk.localOffSet)
-                        temp = f.read(chunkSize)
-                        logging.warning("Chunk is available. Size = " + str(len(temp)))
-                        break
-                    counter += 1
-                    logging.warning("waiting :" + str(counter))
-                r = a.result()
-                logging.warning(str(len(r.content)))
-            logging.warning("cloudOffset: "  + str(cloudOffset))
-            logging.warning("offset: "  + str(offset))
-
-            if cloudOffset >= offset and (cloudOffset+chunkSize) <= (offset+size):
-                logging.warning("Case 1")
-                data += temp
-            elif cloudOffset <= offset and (cloudOffset+chunkSize) > (offset+size):
-               logging.warning("Case 2")
-               data += temp[offset-cloudOffset:(offset-cloudOffset)+size]
-            elif cloudOffset <= offset and (cloudOffset+chunkSize) <= (offset+size):
-                logging.warning("case 3")
-                data += temp[offset-cloudOffset:]
-            else:
-                logging.warning("Case 4")
-                data += temp[:offset+size-cloudOffset]
-
-            if chunkNum+1 < len(file.chunks):
-                chunk = file.chunks[chunkNum+1]
-                cloudOffset = int(chunk.cloudOffSet)
-                chunkSize = int(chunk.size)
-            else:               
-                if len(data) != int(size):
-                    logging.warning("Expected size: " + str(size) + ". Returned data size " + str(len(data)))
-                    #ADD LOGIC HERE TO HANDLE LAST CHUNK WHEN EXTRA DATA IS ASKED FOR
-                    return data
+        try:
+            data = ""
+            temp = ""
+            chunk = file.chunks[chunkNum]
+            cloudOffset = int(chunk.cloudOffSet)
+            chunkSize = int(chunk.size)
+            offset = int(readOffset)
+            size = int(readSize)
+            f = open(file.tempFilePath, 'a+b')        #Understand pyhton write read params to fix this
+            while cloudOffset < (offset + size):
+                if chunk.isAvailable:
+                    #logging.warning("CHUNK AVAILABLE")
+                    #f.seek(0,2)
+                    #logging("AVAILABLE OFFSET " + str(f.tell()))
+                    f.seek(chunk.localOffSet)
+                    temp = f.read(chunkSize)
+                    logging.warning("Chunk is available. Size = " + str(len(temp)))
                 else:
-                    return data
-            chunkNum += 1
+                    #IMP DOWNLOAD PART CHANGE
+                    tempChunk = chunk
+                    tempNum = tempChunk.num
+                    counter = 0
+                    while counter < 10:    
+                        logging.warning(tempNum)              
+                        callBackData = {'chunkNum': tempNum, 'file': file}
+                        self.getChunk1(file, tempChunk.num, background_callback=lambda sess, resp, callBackData=callBackData: self.writeToFile(sess, resp, callBackData, str(tempNum)))               
+                        tempNum += 1
+                        if tempNum < len(file.chunks):
+                            tempChunk = file.chunks[tempNum]
+                        else:
+                            break
+                        counter += 1
+                    logging.warning("Downloaded chunk size = " + str(len(temp)))
+                    counter = 0
+                    while counter < 15:
+                        time.sleep(2)
+                        logging.warning(file.chunks[chunkNum].isAvailable)
+                        if file.chunks[chunkNum].isAvailable:
+                            f.seek(chunk.localOffSet)
+                            temp = f.read(chunkSize)
+                            logging.warning("Chunk is available. Size = " + str(len(temp)))
+                            break
+                        counter += 1
+                        logging.warning("waiting :" + str(counter))
+                logging.warning("cloudOffset: "  + str(cloudOffset))
+                logging.warning("offset: "  + str(offset))
 
-        if len(data) != int(size):
-            logging.warning("Expected size: " + str(size) + ". Returned data size " + str(len(data)))           
-            #ADD LOGIC HERE TO HANDLE LAST CHUNK WHEN EXTRA DATA IS ASKED FOR
-            return data
-        else:
-            return data
+                if cloudOffset >= offset and (cloudOffset+chunkSize) <= (offset+size):
+                    logging.warning("Case 1")
+                    data += temp
+                elif cloudOffset <= offset and (cloudOffset+chunkSize) > (offset+size):
+                   logging.warning("Case 2")
+                   data += temp[offset-cloudOffset:(offset-cloudOffset)+size]
+                elif cloudOffset <= offset and (cloudOffset+chunkSize) <= (offset+size):
+                    logging.warning("case 3")
+                    data += temp[offset-cloudOffset:]
+                else:
+                    logging.warning("Case 4")
+                    data += temp[:offset+size-cloudOffset]
 
+                if chunkNum+1 < len(file.chunks):
+                    chunk = file.chunks[chunkNum+1]
+                    cloudOffset = int(chunk.cloudOffSet)
+                    chunkSize = int(chunk.size)
+                else:               
+                    if len(data) != int(size):
+                        logging.warning("Expected size: " + str(size) + ". Returned data size " + str(len(data)))
+                        #ADD LOGIC HERE TO HANDLE LAST CHUNK WHEN EXTRA DATA IS ASKED FOR
+                        return data
+                    else:
+                        return data
+                chunkNum += 1
+
+            if len(data) != int(size):
+                logging.warning("Expected size: " + str(size) + ". Returned data size " + str(len(data)))           
+                #ADD LOGIC HERE TO HANDLE LAST CHUNK WHEN EXTRA DATA IS ASKED FOR
+                return data
+            else:
+                return data
+        except Exception as e :
+            logging.warning(e)
+            return str(e)
 
     def makeAvailableForRead1(self, file, offset, size):
         #Hack to create temp file
