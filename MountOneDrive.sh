@@ -1,2 +1,2 @@
 #!/bin/bash
-python  /home/onedrivefuse/onedrivefuse.py  /home/Test/ -s
+python  /home/abbasali/Documents/onedrivefuse/onedrivefuse.py  /home/abbasali/Documents/Test -s

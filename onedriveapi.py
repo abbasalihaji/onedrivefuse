@@ -2,6 +2,8 @@ import requests
 import json
 import re
 from odfile import ODFile
+from fuse import FUSE, FuseOSError, Operations, LoggingMixIn, fuse_get_context
+from requests_futures.sessions import FuturesSession
 
 class OneDriveAPI:
     
@@ -9,6 +11,7 @@ class OneDriveAPI:
         self.mainurl = 'https://api.onedrive.com/v1.0'
         self.readConfig('./configfile')
         self.authorization = {'Authorization': 'Bearer ' + self.accesstoken }
+        self.session = FuturesSession(max_workers=self.maxWorkers)
     
     
     def readConfig(self, path):
@@ -31,6 +34,8 @@ class OneDriveAPI:
                 self.redirect = split[1]
             elif category == 'chunksize':
                 self.chunksize = int(split[1])
+            elif category == 'maxWorkers':
+                self.maxWorkers = int(split[1])
 
     def updateConfig(self, path, refreshtoken, accesstoken): #change this later for other paramters    
         f = open(path, 'r+')
@@ -81,10 +86,23 @@ class OneDriveAPI:
         
         if len(response.content) != endbyte - startbyte + 1:
             print 'ERROR, Incorrect length of content. Content Length = ' + str(len(response.content)) + '. Expected lentgh = ' + str(endbyte - startbyte + 1)
-            raise FuseOSError(EIO)
+            #raise FuseOSError(EIO)
 
         return response.content
-    
+ 
+    def download1(self, path, startbyte, endbyte, background_callback=None):
+        url = '/drive/root:' + path  +  ':/content'
+        headers = {'Range': 'bytes=' + str(startbyte) + '-' + str(endbyte)}
+        #response = self.get(url, headers, False, True)
+        headers.update(self.authorization)
+        return self.session.get(self.mainurl + url, headers=headers, allow_redirects=True, background_callback=background_callback)
+        
+        # if len(response.content) != endbyte - startbyte + 1:
+        #     print 'ERROR, Incorrect length of content. Content Length = ' + str(len(response.content)) + '. Expected lentgh = ' + str(endbyte - startbyte + 1)
+        #     #raise FuseOSError(EIO)
+
+        # return response.content 
+
     def get(self, url, headers, decodeResponse = False, allowredirect = False):
         url = self.mainurl + url
         headers.update(self.authorization)
