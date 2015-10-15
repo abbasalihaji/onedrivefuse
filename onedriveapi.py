@@ -89,10 +89,11 @@ class OneDriveAPI:
     def get(self, url, headers, decodeResponse = False, allowredirect = False):
         url = self.mainurl + url
         headers.update(self.authorization)
-        print 'getting = ' + url
+        #print 'getting = ' + url
         response = requests.get(url, headers=headers, allow_redirects=allowredirect)
-        print response.status_code
-        print "getsucezz"
+        #print response.status_code
+        #print "getsucezz"
+        print response.text
         r = json.loads(response.text)
 
         if 'error' in r:
@@ -113,14 +114,63 @@ class OneDriveAPI:
         else:
             return response.text
 
-    def post(self, url, headers, data):
-        
-        response = requests.post(url, headers=headers, data=data)
+    def createUploadSession(self, path):
+        url = '/drive/root:' + path  +  ':/upload.createSession'
+        headers = {}
+        data = {}
+        return self.post(url, headers, data, True)
+
+    def upload(self, url, startByte, endByte, contentSize, fileSize, data, decodeResponse=False):
+        headers = {}
+        headers['Content-Length'] = contentSize
+        headers['Content-Range'] = "bytes " + str(startByte) + "-" + str(endByte) + "/" + str(fileSize)
+        headers.update(self.authorization)
+        #self.session.put(url, headers=headers, data=data, background_callback=background_callback) 
+        response = requests.put(url, headers=headers, data=data) 
 
         r = json.loads(response.text)
 
         if 'error' in r:
-            print 'ERROR3 '
-            print r
+            if r['error']['code'] == 'unauthenticated':
+                self.refreshToken()
+                headers.update(self.authorization)
+                response = requests.put(url, headers=headers, data=data) 
+                r = json.loads(response.text)
+                if 'error' in r:
+                    print 'ERROR1 '
+                    print r
+            else:
+                print 'ERROR2 '
+                print r
+        if decodeResponse:
+            print "Decoding response"
+            return r
+        else:
+            return response.text
+        return 
 
-        return response.text
+
+    def post(self, url, headers, data, decodeResponse = False, allowredirect = False):
+        url = self.mainurl + url
+        headers.update(self.authorization)
+        response = requests.post(url, headers=headers, data=data, allow_redirects=allowredirect)
+
+        r = json.loads(response.text)
+
+        if 'error' in r:
+            if r['error']['code'] == 'unauthenticated':
+                self.refreshToken()
+                headers.update(self.authorization)
+                response = requests.post(url, headers=headers, data=data, allow_redirects=allowredirect)
+                r = json.loads(response.text)
+                if 'error' in r:
+                    print 'ERROR1 '
+                    print r
+            else:
+                print 'ERROR2 '
+                print r
+        if decodeResponse:
+            print "Decoding response"
+            return r
+        else:
+            return response.text

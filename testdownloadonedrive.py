@@ -16,7 +16,7 @@ script = sys.argv
 class testDownload():
 
     def __init__(self):
-        self.path = "/Pictures.rar"
+        self.path = '/Pictures.rar'
         self.onedriveapi = OneDriveAPI()
 
         self.meta = self.onedriveapi.getMeta(self.path)
@@ -53,7 +53,7 @@ class testDownload():
                         end += self.size - start
                     else:
                         end += int(self.chunksize)
-                    self.onedriveapi.download1(self.path, start, end-1, background_callback=lambda sess, resp: self.WriteToFile(sess, resp, {'time': time.time()}))
+                    self.onedriveapi.download(self.path, start, end-1, background_callback=lambda sess, resp: self.WriteToFile(sess, resp, {'time': time.time()}))
                     #self.session.get(data['url'], headers=data['headers'], allow_redirects=True, background_callback=lambda sess, resp: self.WriteToFile(sess, resp, {'time': time.time()}))
                     start = end
                     counter += 1
