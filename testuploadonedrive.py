@@ -29,7 +29,7 @@ class testUpload():
 
         self.chunksize = 1048576 * 10
         self.numChunks = math.ceil(self.fileSize/float(self.chunksize))
-        print self.numChunks
+
         self.session = FuturesSession(max_workers=10)
 
     def uploadFinished(self, sess, resp):
@@ -52,8 +52,8 @@ class testUpload():
                 size = end - start
                 self.file.seek(start)
                 data = self.file.read(size)
-                #response = self.onedriveapi.upload(url, start, end - 1, size, self.fileSize, data)
-                #print response
+                response = self.onedriveapi.upload(url, start, end - 1, size, self.fileSize, data)
+                print response
                 start = end
                 counter += 1             
 
