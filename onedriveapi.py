@@ -78,32 +78,13 @@ class OneDriveAPI:
         headers = {}
         response = self.get(url, headers, True)
         return response
-
-    def download(self, path, startbyte, endbyte):
-        url = '/drive/root:' + path  +  ':/content'
-        headers = {'Range': 'bytes=' + str(startbyte) + '-' + str(endbyte)}
-        #response = self.get(url, headers, False, True)
-        headers.update(self.authorization)
-        response = requests.get(self.mainurl + url, headers=headers, allow_redirects=True, stream=True)
-        
-        if len(response.content) != endbyte - startbyte + 1:
-            print 'ERROR, Incorrect length of content. Content Length = ' + str(len(response.content)) + '. Expected lentgh = ' + str(endbyte - startbyte + 1)
-            #raise FuseOSError(EIO)
-
-        return response.content
  
-    def download1(self, path, startbyte, endbyte, background_callback=None):
+    def download(self, path, startbyte, endbyte, background_callback=None):
         url = '/drive/root:' + path  +  ':/content'
         headers = {'Range': 'bytes=' + str(startbyte) + '-' + str(endbyte)}
         #response = self.get(url, headers, False, True)
         headers.update(self.authorization)
-        return self.session.get(self.mainurl + url, headers=headers, allow_redirects=True, background_callback=background_callback)
-        
-        # if len(response.content) != endbyte - startbyte + 1:
-        #     print 'ERROR, Incorrect length of content. Content Length = ' + str(len(response.content)) + '. Expected lentgh = ' + str(endbyte - startbyte + 1)
-        #     #raise FuseOSError(EIO)
-
-        # return response.content 
+        self.session.get(self.mainurl + url, headers=headers, allow_redirects=True, background_callback=background_callback) 
 
     def get(self, url, headers, decodeResponse = False, allowredirect = False):
         url = self.mainurl + url
