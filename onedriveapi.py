@@ -36,6 +36,8 @@ class OneDriveAPI:
                 self.chunksize = int(split[1])
             elif category == 'maxWorkers':
                 self.maxWorkers = int(split[1])
+            elif category == 'logFile':
+                self.logFile = split[1]
 
     def updateConfig(self, path, refreshtoken, accesstoken): #change this later for other paramters    
         f = open(path, 'r+')

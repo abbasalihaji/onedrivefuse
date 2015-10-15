@@ -25,9 +25,9 @@ from Queue import Queue
 
 class OneDriveFUSE(LoggingMixIn, Operations):
     def __init__(self, logfile=None):
-        logging.basicConfig(filename='/home/abbasali/Documents/onedrivefuse/log.log', filemode='w', level=logging.WARNING)
-        logging.warning("Testing")
         self.onedrive_api = OneDriveAPI()
+        logging.basicConfig(filename=self.onedrive_api.logFile, filemode='w', level=logging.WARNING)
+        logging.warning("Testing")
         self.logfile = logfile
         self.fileManager = FileManager()
         self.getFileEntry('/',True)
@@ -167,8 +167,10 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                 self.buffer.put(r.result())
             count2 += 1
  
-    def writeToFile(self, sess, resp, data, a):
+    def writeToFile(self, sess, resp, data):
         logging.warning("IN WRITE TO FILE")
+        #PUT A CHECK HERE THAT IF THE CHUNK IS ALREADY AVAILABEL DONT OVERWRITE.
+        #CSE WHERE TWO CALLS MADE. AVOID
         try:
             self.writeLock.acquire()
             file = data['file']
@@ -189,6 +191,9 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                 logging.warning("EndOffSet = " + str(f.tell()))
                 file.chunks[chunkNum].isAvailable = True
             logging.warning("RELEASING LOCK")
+            # if chunkNum + 10 < len(file.chunks): #download next chunk needed
+            #     callBackData = {'chunkNum': chunkNum+10, 'file': file}
+            #     self.getChunk1(file, chunkNum+10, background_callback=lambda sess, resp, callBackData=callBackData: self.writeToFile(sess, resp, callBackData))                                      
             self.writeLock.release()
             logging.warning(file.chunks[chunkNum].isAvailable)
             logging.warning("EXITING WRITE TO FILE")
@@ -223,7 +228,7 @@ class OneDriveFUSE(LoggingMixIn, Operations):
                     while counter < 10:    
                         logging.warning(tempNum)              
                         callBackData = {'chunkNum': tempNum, 'file': file}
-                        self.getChunk1(file, tempChunk.num, background_callback=lambda sess, resp, callBackData=callBackData: self.writeToFile(sess, resp, callBackData, str(tempNum)))               
+                        self.getChunk1(file, tempChunk.num, background_callback=lambda sess, resp, callBackData=callBackData: self.writeToFile(sess, resp, callBackData))              
                         tempNum += 1
                         if tempNum < len(file.chunks):
                             tempChunk = file.chunks[tempNum]
