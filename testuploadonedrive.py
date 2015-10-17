@@ -39,7 +39,7 @@ class testUpload():
     def test(self):
         try: 
             session = self.onedriveapi.createUploadSession(self.path)
-            
+            print session
             url = session['uploadUrl']
             start = 0
             end = 0
@@ -59,6 +59,7 @@ class testUpload():
 
         except Exception as e :
             #pass
+            print 'x'
             print str(e)
 test = testUpload(localpath, uploadpath)
 test.test()

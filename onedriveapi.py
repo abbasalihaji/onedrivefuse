@@ -59,8 +59,8 @@ class OneDriveAPI:
     def refreshToken(self):
         headers = {'content-type': 'application/x-www-form-urlencoded'}
         data = 'client_id='+self.clientid+'&redirect_uri='+self.redirect+'&client_secret='+self.clientsecret+'&refresh_token='+self.refreshtoken+'&grant_type=refresh_token'
-        response = self.post('https://login.live.com/oauth20_token.srf', headers, data)
-        r = json.loads(response)
+        response = requests.post('https://login.live.com/oauth20_token.srf', headers=headers, data=data)
+        r = json.loads(response.text)
         self.accesstoken = r['access_token']
         self.refreshtoken = r['refresh_token']
         self.authorization = {'Authorization': 'Bearer ' + self.accesstoken }
@@ -116,8 +116,8 @@ class OneDriveAPI:
 
     def createUploadSession(self, path):
         url = '/drive/root:' + path  +  ':/upload.createSession'
-        headers = {}
         data = {}
+        headers = {}
         return self.post(url, headers, data, True)
 
     def upload(self, url, startByte, endByte, contentSize, fileSize, data, decodeResponse=False):
@@ -154,10 +154,10 @@ class OneDriveAPI:
         url = self.mainurl + url
         headers.update(self.authorization)
         response = requests.post(url, headers=headers, data=data, allow_redirects=allowredirect)
-
         r = json.loads(response.text)
 
         if 'error' in r:
+            print 'in err'
             if r['error']['code'] == 'unauthenticated':
                 self.refreshToken()
                 headers.update(self.authorization)
