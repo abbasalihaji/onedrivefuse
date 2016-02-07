@@ -54,6 +54,9 @@ class testUpload():
                 data = self.file.read(size)
                 response = self.onedriveapi.upload(url, start, end - 1, size, self.fileSize, data)
                 print response
+                #if 'error' in response:
+                #    end = start
+                #else:
                 start = end
                 counter += 1             
 
